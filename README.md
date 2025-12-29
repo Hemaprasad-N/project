@@ -1,33 +1,33 @@
-## AI-Powered-Crop-Disease-Detection-System
-AI-Powered Crop Disease Detection is an intelligent, cloud-enabled platform that leverages deep learning and computer vision to automatically identify crop diseases from leaf images. The system significantly reduces manual inspection efforts while enabling early, accurate, and scalable disease diagnosis for farmers and agricultural stakeholders.
+## Flood Sense and Response : A Hybrid Flood Prediction and Detection System
+Flood disasters pose a recurring and escalating threat in many regions of India, driven by climate change, unplanned urbanization, and inadequate early-warning mechanisms. AI-Driven Flood Detection and Prediction System with Intelligent Alerting (Flood sense and response), aims to address these challenges by leveraging artificial intelligence, modern web technologies, and automated communication platforms. The system analyzes environmental and scenario-based inputs to detect potential flood conditions and predict risk levels using machine learning models. A web-based dashboard enables users to interact with the system, submit flood-related parameters, and receive AI-generated interpretations of flood scenarios. 
 
 ## About
-The AI-Powered Crop Disease Detection System is designed to address the critical challenge of early disease identification in agriculture. Traditional crop disease diagnosis relies heavily on manual observation by farmers or agricultural experts, which is time-consuming, subjective, and often inaccurate—especially in large-scale farming environments.
+Flood Sense and Response aims to leverage machine learning models, natural language processing, and automated alert mechanisms to analyze environmental parameters and user-provided flood scenarios. By transforming raw data into meaningful risk assessments and AI-generated explanations, the system enables users to understand flood severity and potential consequences in a clear and actionable manner.
 
-This system uses Convolutional Neural Networks (CNNs) trained on labeled plant leaf images to automatically detect and classify crop diseases. The platform accepts leaf images captured via mobile phones or cameras and processes them through a trained deep learning model to predict the disease type with high accuracy.
+Beyond prediction and analysis, the platform emphasizes timely and reliable communication through the integration of Telegram-based alert delivery. This approach ensures fast dissemination of flood warnings and advisories without dependence on traditional SMS systems or complex geospatial mapping. Designed as a modular and scalable web application, the project prioritizes accessibility, cost-effectiveness, and ease of use, laying the foundation for a proactive flood management framework
 
-Unlike rule-based or purely manual methods, the proposed system provides automated, data-driven disease detection while maintaining transparency in predictions. The solution supports real-time inference, enabling timely intervention and reducing crop loss. It is designed as a scalable, user-friendly platform suitable for modern precision agriculture.
+The current flood monitoring and disaster response mechanisms suffer from several critical limitations, including delayed risk assessment, fragmented data analysis, and limited public accessibility. Many existing systems rely heavily on manual reporting, static thresholds, or complex sensor-based infrastructures that are expensive to deploy and difficult to maintain.
 
 ## Features
-Automated crop disease detection using deep learning
+AI-driven flood detection and prediction using machine learning
 
-CNN-based image classification
+Scenario-based flood risk analysis with explainable results
 
-Supports multiple crops and disease categories
+Supports environmental parameter and voice-based inputs
 
-Image-based real-time disease prediction
+Real-time flood risk classification (Low / Moderate / High)
 
-High accuracy on real-world agricultural datasets
+Telegram-based automated alert notifications
 
-User-friendly interface for farmers and agronomists
+User-friendly web interface for easy interaction
 
-Reduces dependency on agricultural experts
+Reduces dependency on manual flood monitoring systems
 
-Early disease detection and prevention
+Early flood risk identification and preparedness support
 
-Scalable cloud-based deployment
+Scalable and modular system architecture
 
-Supports dataset expansion and model retraining
+Supports future model enhancement and data integration
 
 ## Requirements
 ### Software & Environment
@@ -38,9 +38,9 @@ Development Language: Python 3.8+
 
 Frontend: HTML, CSS, JavaScript / React.js
 
-Backend: Flask / FastAPI
+Backend: Python / FastAPI
 
-Database: MySQL / MongoDB (optional)
+Database: MySQL 
 
 IDE: VS Code
 
@@ -62,17 +62,20 @@ Flask / FastAPI
 
 ## System Architecture
 
-<img width="1185" height="525" alt="image" src="https://github.com/user-attachments/assets/15707013-8fb4-427e-99e9-33874729bc31" />
+<img width="822" height="430" alt="image" src="https://github.com/user-attachments/assets/4fd6ae03-8ba0-4daa-8908-697d5a4fce45" />
+
 
 
 ## Output
 
 #### Output1  
-<img width="1017" height="456" alt="image" src="https://github.com/user-attachments/assets/dd2f7fb4-5ccc-441d-b7f0-a773bfbd3a59" />
+<img width="789" height="393" alt="image" src="https://github.com/user-attachments/assets/ba5e56f3-a9e2-401c-a888-12528fdaed83" />
+
 
 
 #### Output2 
-<img width="1030" height="575" alt="image" src="https://github.com/user-attachments/assets/b1dad798-04c2-454d-bc3d-d8747abf81ca" />
+<img width="820" height="395" alt="image" src="https://github.com/user-attachments/assets/29a166e5-fa4e-4bfa-8d6d-3ba4a3774f47" />
+
 
 
 
@@ -81,39 +84,34 @@ Flask / FastAPI
 ## Results and Impact
 ### Major Experimental Outcomes:
 
-Up to 95–98% disease classification accuracy
+Flood prediction accuracy of approximately 76% – 80%
 
-Early disease detection before visible crop damage
+Effective classification of flood risk into Low, Moderate, and High categories
 
-Robust performance across multiple crop types
+Reliable performance across different environmental input conditions
 
-High precision and recall on real-world datasets
+High precision and recall in identifying high-risk flood scenarios
 
-Significant reduction in manual inspection effort
+Reduced dependency on manual flood assessment methods
 
 ### Overall Impact:
 
-Reduces crop loss through early diagnosis
+Enhances early flood warning and preparedness
 
-Improves agricultural productivity
+Reduces risk to life and property through timely alerts
 
-Minimizes pesticide misuse
+Improves community awareness and disaster response readiness
 
-Supports precision and smart agriculture
+Supports informed decision-making during flood events
 
-Enhances decision-making for farmers
+Scalable and cost-effective flood monitoring solution
 
-Scalable and cost-effective solution
-
-Promotes sustainable farming practices
-
+Promotes proactive climate resilience and disaster mitigation strategies
 ## Articles published / References
-1. P. Mohanty et al., Using Deep Learning for Image-Based Plant Disease Detection, Frontiers in Plant Science, 2016.
+1.Shuryansh Gupta; Megha ., et al;Flood Prediction Using LSTM with Other Deep Learning Architecture.
 
-2. J. Ferentinos, Deep Learning Models for Plant Disease Detection and Diagnosis, Computers and Electronics in Agriculture, 2018.
+2.Chen, L., et al. (2024). Explainable AI in emergency management. Emergency Management Review, 45(3), 234-251.
 
-3. S. Sladojevic et al., Deep Neural Networks for Plant Recognition, Computational Intelligence and Neuroscience, 2016.
+3.Rodriguez, M., et al. (2024). Multimodal AI systems for crisis management. Int J Disaster Management, 38(4), 445-462.
 
-4. A. Kamilaris and F. Prenafeta-Boldú, Deep Learning in Agriculture: A Survey, Computers and Electronics in Agriculture, 2018.
-
-5. FAO, Digital Technologies in Agriculture, 2021.
+4.Liu, X., et al. (2024). FastAPI-based emergency management systems. Emergency Systems Technology, 28(5), 123-139.
