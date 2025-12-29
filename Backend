@@ -1,1 +1,344 @@
+server.py
+```
+from fastapi import FastAPI, APIRouter
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+import os, logging, json, uuid, base64, asyncio, aiosqlite, re
+from pathlib import Path
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict
+import google.generativeai as genai
 
+# --------------------------------------------------
+# 🔹 FLOOD, VISION, RATE LIMITER & ALERT IMPORTS
+# --------------------------------------------------
+from flood_model import detect_flood_from_text, fuse_flood_decision
+from vision_flood_analyzer import VisionFloodAnalyzer
+from gemini_rate_limiter import GeminiRateLimiter
+from sms_email_gateway import send_sms_alert
+from telegram_alerts import send_telegram_alert
+
+# --------------------------------------------------
+# ENV SETUP
+# --------------------------------------------------
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+DB_PATH = str((ROOT_DIR / "disaster_response.db").resolve())
+
+# --------------------------------------------------
+# FASTAPI
+# --------------------------------------------------
+app = FastAPI()
+api_router = APIRouter(prefix="/api")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("server")
+
+# --------------------------------------------------
+# DATABASE
+# --------------------------------------------------
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS scenarios (
+            id TEXT PRIMARY KEY,
+            scenario_description TEXT,
+            language TEXT,
+            action_recommendation TEXT,
+            ethical_reasoning TEXT,
+            confidence_score REAL,
+            risk_factors TEXT,
+            alternative_options TEXT,
+            transparency_trace TEXT,
+            multilingual_response TEXT,
+            dialogue_prompt TEXT,
+            timestamp TEXT,
+            has_video INTEGER
+        )
+        """)
+        await db.commit()
+
+# --------------------------------------------------
+# MODELS
+# --------------------------------------------------
+class AlertSettings(BaseModel):
+    enabled: bool = True
+    telegram: bool = True
+    sms: bool = False
+
+
+class ScenarioInput(BaseModel):
+    scenario_description: str
+    language: str = "en"
+    video_frames: Optional[List[str]] = None
+    alert_settings: Optional[AlertSettings] = None
+
+
+class AnalysisResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    scenario_description: str
+    language: str
+    action_recommendation: str
+    ethical_reasoning: str
+    confidence_score: float
+    risk_factors: List[str]
+    alternative_options: List[Dict[str, Any]]
+    transparency_trace: Dict[str, Any]
+    multilingual_response: Dict[str, str]
+    dialogue_prompt: str
+    timestamp: str
+    has_video: bool
+
+
+# --------------------------------------------------
+# 🌧️ FLOOD PREDICTION MODEL
+# --------------------------------------------------
+class FloodPredictionInput(BaseModel):
+    rainfall_24hr: float
+    rainfall_intensity: float
+    temperature: float
+    humidity: float
+    flow_rate: float
+    location_type: str
+
+
+# --------------------------------------------------
+# DECISION ROUTING
+# --------------------------------------------------
+def route_by_flood_status(flood_result: Dict[str, Any]) -> str:
+    status = flood_result.get("flood_status")
+    if status == "NO_FLOOD":
+        return "INFO_ONLY"
+    if status == "FLOOD_RISK":
+        return "WARNING"
+    if status == "ACTIVE_FLOOD":
+        return "ALERT"
+    if status == "SEVERE_FLOOD":
+        return "EMERGENCY"
+    return "INFO_ONLY"
+
+# --------------------------------------------------
+# JSON EXTRACTION
+# --------------------------------------------------
+def extract_json_safe(text: str) -> Dict[str, Any]:
+    text = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+    matches = re.findall(r"\{[\s\S]*\}", text)
+    if not matches:
+        raise ValueError("No JSON object found")
+    return json.loads(matches[-1])
+
+# --------------------------------------------------
+# GEMINI ETHICAL AGENT
+# --------------------------------------------------
+class EthicalDecisionAgent:
+    def __init__(self):
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
+
+    async def analyze_scenario(self, scenario: str, language: str, frames):
+        parts: List[Any] = [scenario]
+
+        if frames:
+            for frame in frames[:1]:
+                if frame.startswith("data:image"):
+                    parts.append({
+                        "mime_type": "image/jpeg",
+                        "data": base64.b64decode(frame.split(",")[1])
+                    })
+
+        prompt = f"""
+You MUST return ONLY valid JSON.
+
+{{
+  "action_recommendation": "",
+  "ethical_reasoning": "",
+  "confidence_score": 0.0,
+  "risk_factors": [],
+  "alternative_options": [],
+  "key_factors": {{}},
+  "response_tamil": "",
+  "dialogue_prompt": ""
+}}
+
+Language: {"Tamil + English" if language == "ta" else "English"}
+"""
+
+        response = await asyncio.to_thread(
+            self.model.generate_content,
+            [prompt, *parts]
+        )
+
+        try:
+            return extract_json_safe(response.text)
+        except Exception:
+            return self.fallback()
+
+    def fallback(self):
+        return {
+            "action_recommendation": "Evacuate immediately.",
+            "ethical_reasoning": "High disaster risk detected.",
+            "confidence_score": 0.6,
+            "risk_factors": ["unknown_conditions"],
+            "alternative_options": [],
+            "key_factors": {},
+            "response_tamil": "உடனடியாக வெளியேறவும்.",
+            "dialogue_prompt": "Do you need evacuation guidance?"
+        }
+
+# --------------------------------------------------
+# INITIALIZE
+# --------------------------------------------------
+agent = EthicalDecisionAgent()
+vision_analyzer = VisionFloodAnalyzer()
+vision_rate_limiter = GeminiRateLimiter(min_interval_seconds=15)
+ethics_rate_limiter = GeminiRateLimiter(min_interval_seconds=15)
+
+# --------------------------------------------------
+# ANALYZE ENDPOINT
+# --------------------------------------------------
+@api_router.post("/analyze-scenario", response_model=AnalysisResult)
+async def analyze_scenario(data: ScenarioInput):
+
+    # 1️⃣ Flood detection
+    text_flood = detect_flood_from_text(
+        data.scenario_description,
+        has_video=bool(data.video_frames)
+    )
+
+    vision_flood = None
+    if data.video_frames and await vision_rate_limiter.allow():
+        vision_flood = await vision_analyzer.analyze(data.video_frames[:1])
+
+    flood_analysis = fuse_flood_decision(text_flood, vision_flood) if vision_flood else text_flood
+    decision_route = route_by_flood_status(flood_analysis)
+
+    # 2️⃣ Ethics reasoning
+    if await ethics_rate_limiter.allow():
+        analysis = await agent.analyze_scenario(
+            data.scenario_description,
+            data.language,
+            data.video_frames
+        )
+    else:
+        analysis = agent.fallback()
+
+    # 🔧 CRITICAL FIX: normalize alternative_options
+    normalized_alternatives = []
+    for i, opt in enumerate(analysis.get("alternative_options", [])):
+        if isinstance(opt, dict):
+            normalized_alternatives.append(opt)
+        else:
+            normalized_alternatives.append({
+                "option_number": i + 1,
+                "description": str(opt),
+                "pros": [],
+                "cons": []
+            })
+
+    # 3️⃣ Response
+    result = AnalysisResult(
+        id=str(uuid.uuid4()),
+        scenario_description=data.scenario_description,
+        language=data.language,
+        action_recommendation=analysis["action_recommendation"],
+        ethical_reasoning=analysis["ethical_reasoning"],
+        confidence_score=float(analysis["confidence_score"]),
+        risk_factors=analysis["risk_factors"],
+        alternative_options=normalized_alternatives,  # ✅ FIXED
+        transparency_trace={
+            **analysis.get("key_factors", {}),
+            "flood_analysis": flood_analysis,
+            "decision_route": decision_route
+        },
+        multilingual_response={
+            "en": analysis["action_recommendation"],
+            "ta": analysis["response_tamil"]
+        },
+        dialogue_prompt=analysis["dialogue_prompt"],
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        has_video=bool(data.video_frames)
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO scenarios VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                result.id,
+                result.scenario_description,
+                result.language,
+                result.action_recommendation,
+                result.ethical_reasoning,
+                result.confidence_score,
+                json.dumps(result.risk_factors),
+                json.dumps(result.alternative_options),
+                json.dumps(result.transparency_trace),
+                json.dumps(result.multilingual_response),
+                result.dialogue_prompt,
+                result.timestamp,
+                int(result.has_video)
+            )
+        )
+        await db.commit()
+
+    return result
+
+# --------------------------------------------------
+# 🌧️ FLOOD RISK PREDICTION ENDPOINT
+# --------------------------------------------------
+@api_router.post("/predict-flood")
+async def predict_flood(data: FloodPredictionInput):
+
+    score = 0.0
+    if data.rainfall_24hr > 100:
+        score += 0.3
+    if data.rainfall_intensity > 20:
+        score += 0.25
+    if data.flow_rate > 500:
+        score += 0.25
+    if data.humidity > 80:
+        score += 0.1
+    if data.location_type in ["lowland", "slope"]:
+        score += 0.1
+
+    score = min(score, 1.0)
+
+    if score > 0.75:
+        level = "High"
+        result = "Flooded"
+    elif score > 0.45:
+        level = "Medium"
+        result = "Possible Flood"
+    else:
+        level = "Low"
+        result = "Safe"
+
+    return {
+        "prediction_result": result,
+        "risk_level": level,
+        "flood_probability": score,
+        "weather_data": data.model_dump(),
+        "recommendations": [
+            "Monitor river and rainfall updates",
+            "Prepare evacuation plan",
+            "Avoid low-lying areas if rainfall continues"
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+# --------------------------------------------------
+# ROUTER & MIDDLEWARE
+# --------------------------------------------------
+app.include_router(api_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup():
+    await init_db()
+    logger.info("🚀 Flood AI server ready ")
+```
