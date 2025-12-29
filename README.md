@@ -62,19 +62,22 @@ Flask / FastAPI
 
 ## System Architecture
 
-<img width="822" height="430" alt="image" src="https://github.com/user-attachments/assets/4fd6ae03-8ba0-4daa-8908-697d5a4fce45" />
+<img width="1408" height="736" alt="Picture1" src="https://github.com/user-attachments/assets/91cee905-8782-49a3-a244-2e9ae673a825" />
+
 
 
 
 ## Output
 
 #### Output1  
-<img width="789" height="393" alt="image" src="https://github.com/user-attachments/assets/ba5e56f3-a9e2-401c-a888-12528fdaed83" />
+<img width="1896" height="908" alt="Screenshot 2025-12-29 001809" src="https://github.com/user-attachments/assets/cb4a9761-34a4-48c4-8a6f-0b35508b910f" />
+
 
 
 
 #### Output2 
-<img width="820" height="395" alt="image" src="https://github.com/user-attachments/assets/29a166e5-fa4e-4bfa-8d6d-3ba4a3774f47" />
+<img width="1896" height="913" alt="Screenshot 2025-12-29 002042" src="https://github.com/user-attachments/assets/4c575954-3210-4f39-9724-72e27acfd3b3" />
+
 
 
 
