@@ -1,0 +1,707 @@
+```
+import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
+import { Mic, MicOff, Send, AlertCircle, Languages, History, Home, Volume2, VolumeX, Video, Upload, Camera, CloudRain, Droplets, Thermometer } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import ResultsTable from "../components/ResultsTable";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const Dashboard = () => {
+  const [scenario, setScenario] = useState("");
+  const [language, setLanguage] = useState("en");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [results, setResults] = useState(null);
+  const [alertSettings, setAlertSettings] = useState({
+  enabled: true,
+  telegram: true,
+  sms: false
+});
+  const [floodStatus, setFloodStatus] = useState(null);
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  
+  // --------------------------------------------------
+  // AUTO ANALYZE STATE
+  // --------------------------------------------------
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
+  const autoAnalyzeIntervalRef = useRef(null);
+
+
+  
+  // Video states
+  const [videoMode, setVideoMode] = useState(null); // 'upload' or 'live'
+  const [videoFile, setVideoFile] = useState(null);
+  const [isLiveVideo, setIsLiveVideo] = useState(false);
+  const [videoPreview, setVideoPreview] = useState(null);
+  const hasVideoInput = isLiveVideo || videoMode === "upload";
+  const mediaRecorderRef = useRef(null);
+
+
+
+  
+
+  
+  // Flood prediction states
+  
+  
+  const recognitionRef = useRef(null);
+  const synthRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Initialize Speech Recognition
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = language === 'ta' ? 'ta-IN' : 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        let interim = '';
+        let final = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            final += transcript + ' ';
+          } else {
+            interim += transcript;
+          }
+        }
+
+        if (final) {
+          setScenario(prev => prev + final);
+          setInterimTranscript('');
+        } else {
+          setInterimTranscript(interim);
+        }
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        toast.error(`Voice input error: ${event.error}`);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+        setInterimTranscript('');
+      };
+    }
+
+    // Initialize Speech Synthesis
+    if ('speechSynthesis' in window) {
+      synthRef.current = window.speechSynthesis;
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+      
+    };
+  }, [language]);
+
+  // --------------------------------------------------
+// AUTO-ANALYZE (LIVE VIDEO TEMPORAL MODE)
+// --------------------------------------------------
+useEffect(() => {
+  if (!autoAnalyze || !isLiveVideo) {
+    if (autoAnalyzeIntervalRef.current) {
+      clearInterval(autoAnalyzeIntervalRef.current);
+      autoAnalyzeIntervalRef.current = null;
+    }
+    return;
+  }
+
+  autoAnalyzeIntervalRef.current = setInterval(() => {
+    if (!isAnalyzing && videoRef.current?.readyState >= 2) {
+      if (mediaRecorderRef.current?.state === "inactive") {
+      mediaRecorderRef.current.start();
+      }
+    console.log("🔁 Auto-analyzing live video...");
+    handleAnalyze();
+  }
+  }, 10000); // every 10 seconds
+
+  return () => {
+    if (autoAnalyzeIntervalRef.current) {
+      clearInterval(autoAnalyzeIntervalRef.current);
+      autoAnalyzeIntervalRef.current = null;
+    }
+  };
+}, [autoAnalyze, isLiveVideo]);
+
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      toast.info("Recording stopped");
+    } else {
+      if (recognitionRef.current) {
+        recognitionRef.current.lang = language === 'ta' ? 'ta-IN' : 'en-US';
+        recognitionRef.current.start();
+        setIsRecording(true);
+        toast.success("Recording started - speak your scenario");
+      } else {
+        toast.error("Speech recognition not supported in this browser");
+      }
+    }
+  };
+
+  const speakText = (text, lang = 'en-US') => {
+    if (!synthRef.current) {
+      toast.error("Text-to-speech not supported in this browser");
+      return;
+    }
+
+    if (isSpeaking) {
+      synthRef.current.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      toast.error("Error speaking text");
+    };
+
+    synthRef.current.speak(utterance);
+    toast.success("Reading recommendation aloud");
+  };
+
+  // Video handling functions
+  const startLiveVideo = async () => {
+    try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 },
+      audio: false,
+    });
+
+    if (!videoRef.current) return;
+
+    videoRef.current.srcObject = stream;
+    videoRef.current.muted = true;
+    videoRef.current.playsInline = true;
+
+    await videoRef.current.play();
+
+    // 🔒 KEEP CAMERA ALIVE (CRITICAL)
+    mediaRecorderRef.current = new MediaRecorder(stream);
+    mediaRecorderRef.current.start();
+
+    streamRef.current = stream;
+    setIsLiveVideo(true);
+    setVideoMode("live");
+
+    toast.success("Live video started");
+  } catch (err) {
+    console.error(err);
+    toast.error("Camera access failed");
+  }
+  };
+
+  const stopLiveVideo = () => {
+     if (mediaRecorderRef.current) {
+    mediaRecorderRef.current.stop();
+    mediaRecorderRef.current = null;
+  }
+
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }
+
+  if (videoRef.current) {
+    videoRef.current.srcObject = null;
+  }
+
+  setIsLiveVideo(false);
+  setVideoMode(null);
+  toast.info("Live video stopped");
+  };
+
+ 
+
+
+  const captureFrame = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoRef.current, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg');
+      setVideoPreview(imageData);
+      toast.success("Frame captured");
+      return imageData;
+    }
+    return null;
+  };
+
+  const handleVideoUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      if (file.type.startsWith('video/')) {
+        setVideoFile(file);
+        const url = URL.createObjectURL(file);
+        setVideoPreview(url);
+        setVideoMode('upload');
+        toast.success("Video uploaded successfully");
+      } else {
+        toast.error("Please upload a video file");
+      }
+    }
+  };
+
+  const clearVideo = () => {
+    setVideoFile(null);
+    setVideoPreview(null);
+    setVideoMode(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const captureVideoFramesSafely = async (videoSrc, frameCount = 2) => {
+  const frames = [];
+  const video = document.createElement("video");
+  video.src = videoSrc;
+  video.muted = true;
+  video.playsInline = true;
+
+  await new Promise(resolve => {
+    video.onloadeddata = resolve;
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+
+  for (let i = 0; i < frameCount; i++) {
+    video.currentTime = (video.duration / frameCount) * i;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    ctx.drawImage(video, 0, 0);
+    frames.push(canvas.toDataURL("image/jpeg"));
+  }
+
+  return frames;
+};
+
+
+  const handleAnalyze = async () => {
+  
+    if (isAnalyzing) return;
+
+    let scenarioText = scenario.trim();
+
+//  CRITICAL FIX: ensure text exists if video exists
+if (!scenarioText && (isLiveVideo || videoMode === "upload")) {
+  scenarioText = "Analyze the disaster situation shown in the video.";
+}
+
+const hasText = scenarioText.length > 0;
+const hasVideo = isLiveVideo || videoMode === "upload";
+
+if (!hasText && !hasVideo) {
+  toast.error("Please provide either text description or video input");
+  return;
+}
+
+
+    setIsAnalyzing(true);
+    setResults(null);
+
+    try {
+      let videoFrames = [];
+
+// LIVE CAMERA → temporal sampling
+if (isLiveVideo && videoRef.current) {
+  for (let i = 0; i < 2; i++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext("2d").drawImage(videoRef.current, 0, 0);
+    videoFrames.push(canvas.toDataURL("image/jpeg"));
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
+// UPLOADED VIDEO → SAFE frame capture
+else if (videoPreview && videoMode === "upload") {
+  const video = document.createElement("video");
+  video.src = videoPreview;
+  video.muted = true;
+  video.playsInline = true;
+
+  await video.play();
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+
+  const timestamps = [
+    0,
+    video.duration * 0.33,
+    video.duration * 0.66,
+    Math.max(video.duration - 0.2, 0)
+  ];
+
+  for (const t of timestamps) {
+    video.currentTime = t;
+    await new Promise(r => setTimeout(r, 300));
+    ctx.drawImage(video, 0, 0);
+    videoFrames.push(canvas.toDataURL("image/jpeg"));
+  }
+
+  video.pause();
+}
+
+
+
+
+      
+      
+
+      const response = await axios.post(`${API}/analyze-scenario`, {
+        scenario_description: scenarioText,
+        language: language,
+        video_frames: videoFrames.length ? videoFrames : null,
+        alert_settings: alertSettings 
+
+      });
+
+      setResults(response.data);
+      setFloodStatus(response.data?.transparency_trace?.flood_analysis || null);
+      const floodInfo = response.data?.transparency_trace?.flood_analysis;
+const decisionRoute = response.data?.transparency_trace?.decision_route;
+
+if (decisionRoute === "ALERT") {
+  toast.warning("⚠️ Flood detected! Conditions are worsening.");
+}
+
+if (decisionRoute === "EMERGENCY") {
+  toast.error("🚨 SEVERE FLOOD! Immediate action required.");
+}
+
+
+
+
+      toast.success("Analysis complete!");
+    } catch (error) {
+      console.error('Analysis error:', error);
+      toast.error("Failed to analyze scenario. Please try again.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Flood prediction handlers
+  
+
+  
+
+  return (
+    <div className="min-h-screen gradient-bg p-4 sm:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="glass-effect rounded-3xl p-6 sm:p-8 mb-8 fade-in">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl sm:text-4xl font-bold text-white mb-1">
+                  Ethical Disaster Response AI
+                </h1>
+                <p className="text-white/80 text-sm sm:text-base">
+                  Explainable Agentic Decision-Making System with Flood Prediction
+                </p>
+              </div>
+            </div>
+            <Button
+              data-testid="history-btn"
+              onClick={() => navigate('/history')}
+              className="btn-secondary text-white border-0 px-6 py-3 rounded-xl font-medium"
+            >
+              <History className="w-5 h-5 mr-2" />
+              History
+            </Button>
+          </div>
+        </div>
+
+        {/* Scenario Analysis Section */}
+        <div className="glass-effect rounded-3xl p-6 sm:p-8 mb-8 fade-in">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <Home className="w-6 h-6" />
+              Disaster Scenario Analysis
+            </h2>
+            <div className="flex items-center gap-2">
+              <Languages className="w-5 h-5 text-white" />
+              <select
+                data-testid="language-selector"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-white/20 text-white rounded-xl px-4 py-2 border-0 outline-none cursor-pointer font-medium"
+              >
+                <option value="en" className="text-gray-900">English</option>
+                <option value="ta" className="text-gray-900">தமிழ் (Tamil)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Text Input */}
+            <div className="relative">
+              <Textarea
+                data-testid="scenario-input"
+                value={scenario + interimTranscript}
+                onChange={(e) => setScenario(e.target.value)}
+                placeholder="Describe the disaster scenario (e.g., 'Flood warning in Zone-3, water level rising rapidly, 500 residents in low-lying area')..."
+                className="w-full min-h-[150px] bg-white/90 backdrop-blur-sm rounded-2xl p-4 text-gray-900 border-0 resize-none focus:ring-2 focus:ring-white/50 text-base"
+                disabled={isRecording}
+              />
+              {interimTranscript && (
+                <span className="absolute bottom-4 left-4 text-gray-500 italic">
+                  {interimTranscript}
+                </span>
+              )}
+            </div>
+
+            {/* Video Input Controls */}
+            <div className="bg-white/10 rounded-2xl p-4 space-y-3">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                <Video className="w-5 h-5" />
+                Video Input (Optional)
+              </h3>
+
+              <div className="flex items-center gap-3 mt-2">
+                <Label className="text-white">Auto Analyze</Label>
+                <input
+                  type="checkbox"
+                  checked={autoAnalyze}
+                  onChange={(e) => setAutoAnalyze(e.target.checked)}
+                />
+                <span className="text-white/70 text-sm">
+                  Analyze live video every 10 seconds
+                </span>
+              </div>
+
+              
+              <div className="flex flex-wrap gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleVideoUpload}
+                  className="hidden"
+                />
+                
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLiveVideo}
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white border-0 px-6 py-3 rounded-xl font-medium"
+                >
+                  <Upload className="w-5 h-5 mr-2" />
+                  Upload Video
+                </Button>
+
+                {!isLiveVideo ? (
+                  <Button
+                    onClick={startLiveVideo}
+                    disabled={videoMode === 'upload'}
+                    className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white border-0 px-6 py-3 rounded-xl font-medium"
+                  >
+                    <Camera className="w-5 h-5 mr-2" />
+                    Start Live Video
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={stopLiveVideo}
+                    className="bg-red-500 hover:bg-red-600 text-white border-0 px-6 py-3 rounded-xl font-medium"
+                  >
+                    <Camera className="w-5 h-5 mr-2" />
+                    Stop Live Video
+                  </Button>
+                )}
+
+                {videoMode && (
+                  <Button
+                    onClick={clearVideo}
+                    className="bg-gray-500 hover:bg-gray-600 text-white border-0 px-6 py-3 rounded-xl font-medium"
+                  >
+                    Clear Video
+                  </Button>
+                )}
+              </div>
+
+              {/* Video Preview */}
+              {isLiveVideo && (
+                <div className="mt-4">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    className="w-full max-w-md rounded-xl"
+                  />
+                </div>
+              )}
+
+              {videoPreview && videoMode === 'upload' && (
+                <div className="mt-4">
+                  <video
+                    src={videoPreview}
+                    controls
+                    className="w-full max-w-md rounded-xl"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                data-testid="voice-input-btn"
+                onClick={toggleRecording}
+                className={`flex-1 sm:flex-none px-8 py-6 rounded-xl font-medium text-white border-0 ${
+                  isRecording
+                    ? 'bg-red-500 hover:bg-red-600 recording'
+                    : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+                }`}
+              >
+                {isRecording ? (
+                  <>
+                    <MicOff className="w-5 h-5 mr-2" />
+                    Stop Recording
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-5 h-5 mr-2" />
+                    Voice Input
+                  </>
+                )}
+              </Button>
+
+              <Button
+                data-testid="analyze-btn"
+                onClick={handleAnalyze}
+                disabled={isAnalyzing}
+                className="flex-1 btn-primary text-white border-0 px-8 py-6 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="w-5 h-5 mr-2" />
+                {isAnalyzing ? 'Analyzing...' : 'Analyze Scenario'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* 🔔 Alert Preferences */}
+<div className="glass-effect rounded-3xl p-6 sm:p-8 mb-8 fade-in">
+  <h2 className="text-2xl font-bold text-white mb-4">
+    🔔 Alert Preferences
+  </h2>
+
+  <div className="space-y-4 text-white">
+    <label className="flex items-center gap-3">
+      <input
+        type="checkbox"
+        checked={alertSettings.enabled}
+        onChange={(e) =>
+          setAlertSettings({ ...alertSettings, enabled: e.target.checked })
+        }
+      />
+      Enable Alerts
+    </label>
+
+    <label className="flex items-center gap-3">
+      <input
+        type="checkbox"
+        checked={alertSettings.telegram}
+        disabled={!alertSettings.enabled}
+        onChange={(e) =>
+          setAlertSettings({ ...alertSettings, telegram: e.target.checked })
+        }
+      />
+      Telegram Alerts (Recommended)
+    </label>
+
+    <label className="flex items-center gap-3">
+      <input
+        type="checkbox"
+        checked={alertSettings.sms}
+        disabled={!alertSettings.enabled}
+        onChange={(e) =>
+          setAlertSettings({ ...alertSettings, sms: e.target.checked })
+        }
+      />
+      SMS Alerts (Email → SMS)
+    </label>
+  </div>
+</div>
+
+
+        
+
+
+        {floodStatus && (
+  <div className={`mb-6 p-4 rounded-2xl text-white font-semibold ${
+    floodStatus.flood_status === "SEVERE_FLOOD"
+      ? "bg-red-600"
+      : floodStatus.flood_status === "ACTIVE_FLOOD"
+      ? "bg-orange-500"
+      : floodStatus.flood_status === "FLOOD_RISK"
+      ? "bg-yellow-500"
+      : "bg-green-600"
+  }`}>
+    🌊 Flood Status: {floodStatus.flood_status.replace("_", " ")} <br />
+    Severity: {floodStatus.severity} | Water Trend: {floodStatus.water_trend}
+  </div>
+)}
+
+
+
+
+        {/* Results Section */}
+        {results && (
+          <div className="fade-in">
+            <ResultsTable results={results} language={language} onSpeak={speakText} isSpeaking={isSpeaking} />
+          </div>
+        )}
+
+        
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
+
+```
